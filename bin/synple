@@ -40,8 +40,8 @@ To perform the calculations above in python and compare the emergent normalized 
 
 
 """
-#import os
-#import sys
+import os
+import sys
 #import subprocess
 #import numpy as np
 #import glob
