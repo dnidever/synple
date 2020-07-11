@@ -52,7 +52,7 @@ import sys
 #import matplotlib.pyplot as plt
 #from itertools import product
 
-import synple
+from synple import synple
 
 if __name__ == "__main__":
 
