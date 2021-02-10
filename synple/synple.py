@@ -63,8 +63,13 @@ modeldir = synpledir + "/models"
 modelatomdir = synpledir + "/data"
 linelistdir = synpledir + "/linelists"
 bindir = synpledir + "/bin"
-synspec = bindir + "/s54d"
-rotin = bindir + "/rotin3"
+#synspec = bindir + "/s54d"
+#rotin = bindir + "/rotin3"
+out = subprocess.run(['which','s54d'],shell=False,capture_output=True)  
+synspec = out.stdout.strip().decode()
+out = subprocess.run(['which','rotin3'],shell=False,capture_output=True)  
+rotin = out.stdout.strip().decode()
+
 
 
 #other stuff
@@ -75,10 +80,11 @@ zero = " 0 "
 one =  " 1 "
 two =  " 2 "
 
+
 def syn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
-    linelist=['gfallx3_bpo.19','kmol3_0.01_30.20'], atom='ap18', vrot=0.0, fwhm=0.0, \
-    steprot=0.0, stepfwhm=0.0,  clean=True, save=False, synfile=None, 
-    compute=True, tmpdir=None):
+        linelist=['gfallx3_bpo.19','kmol3_0.01_30.20'], atom='ap18', vrot=0.0, fwhm=0.0, \
+        steprot=0.0, stepfwhm=0.0,  clean=True, save=False, synfile=None, 
+        compute=True, tmpdir=None, verbose=True):
 
   """Computes a synthetic spectrum
 
@@ -162,13 +168,15 @@ def syn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
       continuum flux (same units as flux)
 
   """
-    
+
+
   #basic checks on the line list and model atmosphere
-  checksynspec(linelist,modelfile)
+  checksynspec(linelist,modelfile,verbose=verbose)
 
   #read model atmosphere
-  atmostype, teff, logg, vmicro2, abu2, nd, atmos = read_model(modelfile)
+  atmostype, teff, logg, vmicro2, abu2, nd, atmos = read_model(modelfile,verbose=verbose)
 
+  
   if vmicro == None: vmicro = vmicro2
   if abu == None: abu = abu2
   if dw == None: 
@@ -181,8 +189,8 @@ def syn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
   #check input parameters are valid
   imode = checkinput(wrange, vmicro, linelist)
   
-
-  print ('teff,logg,vmicro=',teff,logg,vmicro)
+  if verbose:
+    print ('teff,logg,vmicro=',teff,logg,vmicro)
   #print ('abu=',abu)
   #print (len(abu))
   #print ('nd=',nd)
@@ -204,7 +212,7 @@ def syn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
 
 
   cleanup()
-
+  
   writetas('tas',nd,linelist)                           #non-std param. file
   write5(teff,logg,abu,atom)                            #abundance/opacity file
   write8(teff,logg,nd,atmos,atmostype)                  #model atmosphere
@@ -225,7 +233,7 @@ def syn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
     start = time.time()
     p = subprocess.Popen([synspec], stdin=synin, stdout = synout, stderr= synout, shell=True)
     p.wait()
-
+    
     synout.flush()
     synout.close()
     synin.close()
@@ -239,7 +247,8 @@ def syn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
     wave2, flux2 = np.loadtxt('fort.17', unpack=True)
     if dw == None and fwhm <= 0. and vrot <= 0.: cont = np.interp(wave, wave2, flux2)
     end = time.time()
-    print('syn ellapsed time ',end - start, 'seconds')
+    if verbose:
+      print('syn ellapsed time ',end - start, 'seconds')
 
     if fwhm > 0. or vrot > 0.:
       start = time.time()
@@ -247,7 +256,8 @@ def syn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
       wave, flux = call_rotin (wave, flux, vrot, fwhm, space, steprot, stepfwhm, clean=False, reuseinputfiles=True)
       if dw == None: cont = np.interp(wave, wave2, flux2)
       end = time.time()
-      print('convol ellapsed time ',end - start, 'seconds')
+      if verbose:
+        print('convol ellapsed time ',end - start, 'seconds')
 
     if (dw != None): 
       nsamples = int((wrange[1] - wrange[0])/dw) + 1
@@ -1554,7 +1564,7 @@ def call_rotin(wave=None, flux=None, vrot=0.0, fwhm=0.0, space=1e-2, steprot=0.0
 
   return(wave2, flux2)
 
-def read_model(modelfile):
+def read_model(modelfile,verbose=True):
   
   """Reads a model atmosphere into a structure
   
@@ -1588,7 +1598,7 @@ def read_model(modelfile):
     mf = os.path.join(modeldir,modelfile)
     if os.path.isfile(mf): modelfile = mf
 
-  atmostype = identify_atmostype(modelfile)
+  atmostype = identify_atmostype(modelfile,verbose=verbose)
 
   if atmostype == 'kurucz':
     teff, logg, vmicro, abu, nd, atmos = read_kurucz_model(modelfile) 
@@ -1599,7 +1609,7 @@ def read_model(modelfile):
 
   return (atmostype,teff,logg,vmicro,abu,nd,atmos)
 
-def identify_atmostype(modelfile):
+def identify_atmostype(modelfile,verbose=True):
 
   """Idenfies the type of model atmosphere in an input file
 
@@ -1624,7 +1634,8 @@ def identify_atmostype(modelfile):
     else:
       f = open(modelfile,'r')
     line = f.readline()
-    print('modelfile / line=',modelfile,line)
+    if verbose:
+      print('modelfile / line=',modelfile,line)
     type(line)
     if ('TEFF' in line): atmostype = 'kurucz'
     else: atmostype = 'marcs'
@@ -1632,7 +1643,7 @@ def identify_atmostype(modelfile):
    
   return(atmostype)
 
-def checksynspec(linelist,modelfile):
+def checksynspec(linelist,modelfile,verbose=True):
 
   """checking that executables and data are where it should be
 
@@ -1646,7 +1657,8 @@ def checksynspec(linelist,modelfile):
 
   """
 
-  dirs = [synpledir,modelatomdir,linelistdir,bindir]
+  #dirs = [synpledir,modelatomdir,linelistdir,bindir]
+  dirs = [synpledir,modelatomdir,linelistdir]
   for entry in dirs: assert (os.path.isdir(entry)), 'dir '+entry+' missing'
 
   files = [synspec,rotin]
@@ -1660,8 +1672,9 @@ def checksynspec(linelist,modelfile):
     mf = os.path.join(modeldir,modelfile)
     if os.path.isfile(mf): modelfile = mf
 
-  print(modeldir)
-  print(modelfile)
+  if verbose:
+    print(modeldir)
+    print(modelfile)
   assert (os.path.isfile(modelfile)),'model atmosphere file '+modelfile+' missing'
 
 
