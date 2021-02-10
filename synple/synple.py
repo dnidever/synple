@@ -4,7 +4,7 @@
 
 Calculation of synthetic spectra of stars and convolution with a rotational/Gaussian kernel.
 Makes the use of synspec simpler, and retains the main functionalities (when used from
-python). The command line interface for the shell is even simpler but fairly limited. 
+python). The command line interface is even simpler but fairly limited. 
 
 For information on
 synspec visit http://nova.astro.umd.edu/Synspec43/synspec.html.
@@ -42,8 +42,6 @@ To perform the calculations above in python and compare the emergent normalized 
 """
 import os
 import sys
-import string
-import random
 import subprocess
 import numpy as np
 import glob
@@ -53,6 +51,7 @@ import gzip
 from scipy import interpolate
 import matplotlib.pyplot as plt
 from itertools import product
+
 
 #configuration
 #synpledir = /home/callende/synple
@@ -72,10 +71,6 @@ out = subprocess.run(['which','rotin3'],shell=False,capture_output=True)
 rotin = out.stdout.strip().decode()
 
 
-#internal synspec data files
-isdf = ['CIA_H2H2.dat', 'CIA.H2H2.Yi', 'CIA_H2H.dat', 'CIA_H2He.dat', 'CIA_HHe.dat', \
-        'irwin_bc.dat', 'irwin.dat', 'tremblay.dat', \
-        'tsuji.atoms', 'tsuji.molec', 'tsuji.molec_bc2']
 
 #other stuff
 clight = 299792.458
@@ -84,6 +79,7 @@ bolk = 1.38054e-16  # erg/ K
 zero = " 0 "
 one =  " 1 "
 two =  " 2 "
+
 
 def syn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
         linelist=['gfallx3_bpo.19','kmol3_0.01_30.20'], atom='ap18', vrot=0.0, fwhm=0.0, \
@@ -112,7 +108,7 @@ def syn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
       wavelength step for the output fluxes
       this will be the maximum interval for the radiative 
       transfer, and will trigger interpolation at the end
-      (default is None for automatic frequency selection)
+      (default is None for automatic selection)
   strength: float, optional
       threshold in the line-to-continuum opacity ratio for 
       selecting lines (default is 1e-4)
@@ -158,11 +154,9 @@ def syn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
       set to False to skip the actual synspec run, triggering clean=False
       (default True)
   tmpdir: string
-      a temporary directory with this name will be created to store
+      when is not None a temporary directory with this name will be created to store
       the temporary synspec input/output files, and the synple log file (usually named
-      syn.log) will be named as tmpdir_syn.log. When tmp is None a random string is used
-      for this folder
-      (default None)
+      syn.log) will be named as tmpdir_syn.log.
 
   Returns
   -------
@@ -177,11 +171,12 @@ def syn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
 
 
   #basic checks on the line list and model atmosphere
-  linelist, modelfile = checksynspec(linelist,modelfile,verbose=verbose)
+  checksynspec(linelist,modelfile,verbose=verbose)
 
   #read model atmosphere
   atmostype, teff, logg, vmicro2, abu2, nd, atmos = read_model(modelfile,verbose=verbose)
 
+  
   if vmicro == None: vmicro = vmicro2
   if abu == None: abu = abu2
   if dw == None: 
@@ -190,15 +185,12 @@ def syn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
   else: 
     space = dw
 
+
   #check input parameters are valid
   imode = checkinput(wrange, vmicro, linelist)
   
   if verbose:
-    print(modelfile,'is a',atmostype,' model')
     print ('teff,logg,vmicro=',teff,logg,vmicro)
-
-  inlte = 0
-
   #print ('abu=',abu)
   #print (len(abu))
   #print ('nd=',nd)
@@ -206,54 +198,30 @@ def syn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
   #print ('wrange=',wrange)
 
   logfile = 'syn.log'
-  if tmpdir is None:
-    tmpdir = ''.join(random.choices(string.ascii_lowercase + string.digits, k = 16))
-  startdir = os.getcwd()
-  logfile = os.path.join(startdir,os.path.split(tmpdir)[-1]) + "_" + logfile
-  try:
-    os.mkdir(tmpdir)
-  except OSError:
-    print( "cannot create tmpdir %s " % (tmpdir) )
-  try:
-    os.chdir(tmpdir)
-  except OSError:
-    print("cannot enter tmpdir %s " % (tmpdir) )
-
+  if tmpdir is not None:
+    startdir = os.getcwd()
+    logfile = os.path.join(startdir,os.path.split(tmpdir)[-1]) + "_" + logfile
+    try:
+      os.mkdir(tmpdir)
+    except OSError:
+      print( "cannot create tmpdir %s " % (tmpdir) )
+    try:
+      os.chdir(tmpdir)
+    except OSError:
+      print("cannot enter tmpdir %s " % (tmpdir) )
 
   cleanup_fort()
   if os.path.islink('data'): os.unlink('data')
   if os.path.isfile('tas'): os.remove('tas')
 
-  if atmostype == 'tlusty':
-    os.symlink(os.path.join(startdir,modelfile),'fort.8')
-    os.symlink(os.path.join(startdir,modelfile[:-1]+"5"),'fort.5')
-    nonstdfile, datadir, inlte = read_tlusty_extras('fort.8',startdir)
-    if nonstdfile == '':
-      nst = ''
-    else:
-      hnst, nst = os.path.split(nonstdfile)
-      os.symlink(nonstdfile,nst)
-    hdd, dd = os.path.split(datadir)
-    os.symlink(datadir,dd)  
+  assert (not os.path.isdir('data')), 'A subdirectory *data* exists in this folder, and that prevents the creation of a link to the data directory for synple'
 
-    if dd == 'data':
-      for entry in isdf:
-        assert (os.path.isfile(os.path.join(dd,entry))), 'Cannot find the data file:'+dd+'/'+entry
-    else:
-      os.symlink(modelatomdir,'./data')
-      
-  else:
 
-    assert (not os.path.isdir('data')), 'A subdirectory *data* exists in this folder, and that prevents the creation of a link to the data directory for synple'
-
-    os.symlink(modelatomdir,'./data')                     #data directory
-
-  cleanup()
   
   writetas('tas',nd,linelist)                           #non-std param. file
   write5(teff,logg,abu,atom)                            #abundance/opacity file
   write8(teff,logg,nd,atmos,atmostype)                  #model atmosphere
-  write55(wrange,space,imode,inlte,2,strength,vmicro,linelist,atmostype) #synspec control file
+  write55(wrange,space,imode,2,strength,vmicro,linelist,atmostype) #synspec control file
   create_links(linelist)                      #auxiliary data
 
   if compute == False:
@@ -299,29 +267,23 @@ def syn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
     if (dw != None): 
       nsamples = int((wrange[1] - wrange[0])/dw) + 1
       wave3 = np.arange(nsamples)*dw + wrange[0]
-      cont = np.interp(wave3, wave2, flux2)
-      flux = interp_spl(wave3, wave, flux)      
       #flux = np.interp(wave3, wave, flux)
+      flux = interp_spl(wave3, wave, flux)      
+      cont = np.interp(wave3, wave2, flux2)
       wave = wave3
 
-    if clean == True: 
-      cleanup_fort()
-      if os.path.islink('data'): os.unlink('data')
-      if os.path.isfile('tas'): os.remove('tas')
-      if atmostype == 'tlusty':
-        if os.path.islink(dd): os.unlink(dd)
-        if os.path.isfile(nst): os.remove(nst)
+    if clean == True: cleanup_fort()
 
-
-    try:
-      os.chdir(startdir)
-    except OSError:
-      print("cannot change directory from tmpdir %s to startdir %s"  % (tmpdir,startdir) ) 
-    if clean == True:
+    if tmpdir is not None:
       try:
-        os.rmdir(tmpdir)
+        os.chdir(startdir)
       except OSError:
-        print("cannot remove directory tmpdir %s" % (tmpdir) )
+        print("cannot change directory from tmpdir %s to startdir %s"  % (tmpdir,startdir) ) 
+      if clean == True:
+        try:
+          os.rmdir(tmpdir)
+        except OSError:
+          print("cannot remove directory tmpdir %s" % (tmpdir) )
      
 
     if save == True:
@@ -419,8 +381,6 @@ def mpsyn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
   if nthreads == 0: 
     nthreads = cpu_count()
 
-  tmpdir = ''.join(random.choices(string.ascii_lowercase + string.digits, k = 16))
-
   delta = (wrange[1]-wrange[0])/nthreads
   pars = []
   for i in range(nthreads):
@@ -430,7 +390,7 @@ def mpsyn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
     pararr = [modelfile, wrange1, dw, strength, vmicro, abu, \
       linelist, atom, vrot, fwhm, \
       steprot, stepfwhm,  clean, save, synfile, 
-      compute, tmpdir+'-'+str(i) ]
+      compute, 'par'+str(i) ]
     pars.append(pararr)
 
   pool = Pool(nthreads)
@@ -553,8 +513,6 @@ def raysyn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
 
   print('nthreads=',nthreads)
 
-  tmpdir = ''.join(random.choices(string.ascii_lowercase + string.digits, k = 16))
-
   ray.init(num_cpus=nthreads)
 
   rest = [ modelfile,dw,strength,vmicro,abu,linelist, \
@@ -567,9 +525,9 @@ def raysyn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
   for i in range(nthreads):
 
     wrange1 = (wrange[0]+delta*i,wrange[0]+delta*(i+1))
-    folder = tmpdir+'-'+str(i)
+    folder = 'par'+str(i)
 
-    pararr = [wrange1, folder ]
+    pararr = [wrange1, 'par'+str(i) ]
     pars.append(pararr)
 
   results = ray.get([fun.remote(pars[i],constants) for i in range(nthreads)])
@@ -712,7 +670,7 @@ def multisyn(modelfiles, wrange, dw=None, strength=1e-4, abu=None, \
         #if need be, adjust nitrogen abundance according to nfe
         if (abs(nfe1) > 1e-7):
           if (abu1 == None):
-            linelist, entry = checksynspec(linelist,entry)
+            checksynspec(linelist,entry)
             atmostype, teff, logg, vmicro2, abu1, nd, atmos = read_model(entry)
           abu1[6] = abu1[6] * 10.**nfe1
 
@@ -903,7 +861,7 @@ def polysyn(modelfiles, wrange, dw=None, strength=1e-4, abu=None, \
           #if need be, adjust nitrogen abundance according to nfe
           if (abs(nfe1) > 1e-7):
             if (abu1 == None):
-              linelist, entry = checksynspec(linelist,entry)
+              checksynspec(linelist,entry)
               atmostype, teff, logg, vmicro2, abu1, nd, atmos = read_model(entry)
             abu1[6] = abu1[6] * 10.**nfe1
 
@@ -1193,8 +1151,7 @@ def polyopt(wrange=(9.e2,1.e5),dw=0.1,strength=1e-3, linelist=['gfallx3_bpo.19',
                         if rfrac[i] > 0.0: abu[z_rs[i] - 1] = abu[z_rs[i] - 1] * (1.0 - rfrac[i]) * 10.**sfe
 
 
-                  write55(wrange,dw=dw,imode=-3,inlte=0,hydprf=0, \
-                  strength=strength, vmicro=vmicro, linelist=linelist)
+                  write55(wrange,dw=dw,imode=-3,hydprf=0, strength=strength, vmicro=vmicro, linelist=linelist)
 
                   write5(9999.,9.9,abu,atom)
                   
@@ -1603,7 +1560,7 @@ def call_rotin(wave=None, flux=None, vrot=0.0, fwhm=0.0, space=1e-2, steprot=0.0
   synout.close()
   synin.close()
   
-  assert (os.path.isfile('fort.11')), 'Error: I cannot read the file *fort.11* in '+os.getcwd()+' -- looks like rotin has crashed, please look at syn.log'
+  assert (os.path.isfile('fort.11')), 'Error: I cannot read the file *fort.11* in '+tmpdir+' -- looks like rotin has crashed, please look at syn.log'
 
   wave2, flux2 = np.loadtxt('fort.11', unpack=True)
   print(len(wave),len(wave2))
@@ -1624,7 +1581,7 @@ def read_model(modelfile,verbose=True):
   Returns
   -------
   atmostype :  str
-      type of model atmosphere (kurucz/marcs/phoenix/tlusty)
+      type of model atmosphere (kurucz/marcs/phoenix)
   teff : float
       effective temperature (K)
   logg : float
@@ -1656,14 +1613,14 @@ def read_model(modelfile,verbose=True):
     teff, logg, vmicro, abu, nd, atmos = read_phoenix_model(modelfile)
   if atmostype == 'tlusty':
     teff, logg, vmicro, abu, nd, atmos = read_tlusty_model(modelfile)
-
+    
   return (atmostype,teff,logg,vmicro,abu,nd,atmos)
 
 def identify_atmostype(modelfile,verbose=True):
 
   """Idenfies the type of model atmosphere in an input file
 
-  Valid options are kurucz, marcs, tlusty (.7) or phoenix
+  Valid options are kurucz, marcs or phoenix
 
   Parameters
   ----------
@@ -1673,7 +1630,7 @@ def identify_atmostype(modelfile,verbose=True):
   Returns
   -------
   atmostype: str
-      can take the value 'kurucz', 'marcs', 'tlusty' or 'phoenix' 
+      can take the value 'kurucz', 'marcs' or 'phoenix' ('tlusty' soon to be added!)
 
   """
 
@@ -1684,25 +1641,18 @@ def identify_atmostype(modelfile,verbose=True):
     else:
       f = open(modelfile,'r')
     line = f.readline()
-
     if verbose:
       print('modelfile / line=',modelfile,line)
     type(line)
     if ('TEFF' in line): atmostype = 'kurucz'
-    else: 
-      line = f.readline()
-      if ('Teff' in line):
-        atmostype = 'marcs'
-      else:
-        atmostype = 'tlusty'
+    else: atmostype = 'marcs'
     f.close()
    
   return(atmostype)
 
 def checksynspec(linelist,modelfile,verbose=True):
 
-  """checking that executables and data are where it should be. Prepend
-     default directories to linelist and model atmosphere files when necessary
+  """checking that executables and data are where it should be
 
   Parameters
   ----------
@@ -1718,15 +1668,11 @@ def checksynspec(linelist,modelfile,verbose=True):
   dirs = [synpledir,modelatomdir,linelistdir]
   for entry in dirs: assert (os.path.isdir(entry)), 'dir '+entry+' missing'
 
-  i = 0 
+  files = [synspec,rotin]
   for entry in linelist: 
     if not os.path.isfile(entry):
       ll = os.path.join(linelistdir,entry)
-      if os.path.isfile(ll): linelist[i] = ll
-    i = i + 1
-
-  files = [synspec,rotin]
-  for entry in linelist: files.append(entry)
+      if os.path.isfile(ll): files.append(ll)
   for entry in files: assert (os.path.isfile(entry)), 'file '+entry+' missing'
 
   if not os.path.isfile(modelfile):
@@ -1736,11 +1682,10 @@ def checksynspec(linelist,modelfile,verbose=True):
   if verbose:
     print(modeldir)
     print(modelfile)
-
   assert (os.path.isfile(modelfile)),'model atmosphere file '+modelfile+' missing'
 
 
-  return(linelist,modelfile)
+  return(True)
 
 
 def checkinput(wrange, vmicro, linelist):
@@ -1782,6 +1727,11 @@ def checkinput(wrange, vmicro, linelist):
   if len(linelist) == 0: 
     imode = 2  # no atomic or molecular line list -> pure continuum and no molecules
   else:
+
+    #find range of atomic line list
+    if not os.path.isfile(linelist[0]):
+      ll = os.path.join(linelistdir,linelist[0])
+      if os.path.isfile(ll): linelist[0] = ll
 
     nlines, minlambda, maxlambda = getlinelistrange(linelist[0])
 
@@ -1862,30 +1812,25 @@ def write2(lt,lrho,wrange, filename='opt.data', dlw=2e-5, binary=False,strength=
   return()
 
 
-def write55(wrange,dw=1e-2,imode=0,inlte=0,hydprf=2,strength=1e-4,vmicro=0.0, \
+def write55(wrange,dw=1e-2,imode=0,hydprf=2,strength=1e-4,vmicro=0.0, \
   linelist=['gfallx3_bpo.19','kmol3_0.01_30.20'], atmostype='kurucz'):
 
 
   #imode,idst,iprin
   #inmod,zero,ichang,ichemc
   #lyman,zero,zero,zero,zero
-  #one,nlte,icontl,inlist,ifhe2
+  #one,nlte,icontl,zero,ifhe2
   #ihydpr,ihe1pr,ihe2pr
   #wstart,wend,cutoff,zero,strength,wdist 
 
   if (atmostype == 'tlusty' or atmostype == 'marcs'): inmod = 1 
   else: inmod = 0
 
-  inlist = 11
-  for file in linelist:
-    binaryfile = file[:-2]+'11'
-    if not os.path.isfile(binaryfile): inlist = 10
-
   f = open('fort.55','w')
   f.write(" "+str(imode)+" "+2*zero+"\n")
   f.write(" "+str(inmod)+3*zero+"\n")
   f.write(5*zero+"\n")
-  f.write(one+str(inlte)+zero+str(inlist)+zero+"\n")
+  f.write(one+4*zero+"\n")
   f.write(str(hydprf)+2*zero+"\n")
   if imode == -3:
     f.write( ' %f %f %f %i %e %f \n ' % (wrange[0],  -wrange[1], 100., 2000, strength, dw) )
@@ -1943,19 +1888,19 @@ def write5(teff,logg,abu, atom='ap18', ofile='fort.5', nlte=False, tl=False):
     f.write("   0    0     0     -1     0     0    '    ' ' '  \n")
   elif atom == "yo19": # set for NLTE calculations for APOGEE (see Osorio+ 2019 A&A paper)
     f.write("* ../data_atom for ions  \n")
-    f.write("  1    -1     1      0     0     1    ' H 0' 'data/hm.dat'  \n")
+    f.write("  1    -1     1      0     0     1    ' H 0' 'data_atom/hm.dat'  \n")
     f.write("  0     0     3      0   \n")
-    f.write("  1     0     16     0     0     0    ' H 1' 'data/h1_16lev2.dat'  \n")
+    f.write("  1     0     16     0     0     0    ' H 1' 'data_atom/h1_16lev2.dat'  \n")
     f.write("  1     1     1      1     0     0    ' H 2' ' '  \n")
-    f.write("  11    0     42     0     0     0    'Na 1' 'data/NaIkas.tl'  \n")
+    f.write("  11    0     42     0     0     0    'Na 1' 'data_atom/NaIkas.tl'  \n")
     f.write("  11    1     1      1     0     0    'Na 2' '' \n")
-    f.write("  12    0     96     0     0     0    'Mg 1' 'data/Mg1kas_F_ccc.sy'  \n")
-    f.write("  12    1     29     0     0     0    'Mg 2' 'data/Mg2kas_F_ccc.sy'  \n")
+    f.write("  12    0     96     0     0     0    'Mg 1' 'data_atom/Mg1kas_F_ccc.tl'  \n")
+    f.write("  12    1     29     0     0     0    'Mg 2' 'data_atom/Mg2kas_F_ccc.tl'  \n")
     f.write("  12    2     1      1     0     0    'Mg 3' ' '  \n")
-    f.write("  19    0     31     0     0     0    'K  1' 'data/KIkas.tl'  \n")
+    f.write("  19    0     31     0     0     0    'K  1' 'data_atom/KIkas.tl'  \n")
     f.write("  19    1     1      1     0     0    'K  2' ''  \n")
-    f.write("  20    0     66     0     0     0    'Ca 1' 'data/Ca1kas_F_zat.sy'  \n")
-    f.write("  20    1     24     0     0     0    'Ca 2' 'data/Ca2kas_F_zat.sy'  \n")
+    f.write("  20    0     66     0     0     0    'Ca 1' 'data_atom/Ca1kas_F_zat.tl'  \n")
+    f.write("  20    1     24     0     0     0    'Ca 2' 'data_atom/Ca2kas_F_zat.tl'  \n")
     f.write("  20    2     1      1     0     0    'Ca 3' ' '  \n")
     f.write("   0    0     0     -1     0     0    '    ' ' '  \n")
   elif atom == 'ap18': # generic set used in Allende Prieto+ (2018) A&A paper
@@ -2001,22 +1946,17 @@ def write5(teff,logg,abu, atom='ap18', ofile='fort.5', nlte=False, tl=False):
 
 def write8(teff, logg, nd, atmos, atmostype, ofile='fort.8'):
 
-  """Writes the model atmosphere for synspec
-
-     MARCS models can be passed in 'Tlusty' (default, after read with 
-           read_marcs_models2) or 'Kurucz' format
-     Phoenix and Kurucz models are passed to synspec formatted as 'Kurucz'
-
-  """
-
+  f = open(ofile,'w')
   if atmostype == 'tlusty':
-
-    print('write8 should not be called for Tlusty models -- they are ready for synspec!')
-    return ()
+    f.write(" "+str(nd)+" "+str(3)+"\n")
+    for i in range(nd):
+      f.write(' %e ' % atmos['dm'][i])
+    f.write("\n")
+    for i in range(nd):
+      f.write( '%f %e %e \n' % (atmos['t'][i], atmos['ne'][i], atmos['rho'][i] ) )
+    f.close()
 
   else:
-
-    f = open(ofile,'w')
 
     if atmostype == 'marcs':
       f.write(" "+str(nd)+" "+str(-4)+"\n")
@@ -2039,20 +1979,21 @@ def write8(teff, logg, nd, atmos, atmostype, ofile='fort.8'):
   
 
 def create_links(linelist):
-#create soft links for line lists
+#create soft links for line lists, mand odel atom dir 
 
   for i in range(len(linelist)):
-    file = linelist[i]
-    binaryfile = linelist[i][:-2]+'11'
-    if os.path.isfile(binaryfile): file = binaryfile
-    if i == 0: os.symlink(file,'fort.19')
-    else: os.symlink(file,'fort.'+str(20-1+i))
+    if not os.path.isfile(linelist[i]):
+      ll = os.path.join(linelistdir,linelist[i])
+      if os.path.isfile(ll): linelist[i] = ll
+    if i == 0: os.symlink(linelist[0],'fort.19')
+    else: os.symlink(linelist[i],'fort.'+str(20-1+i))
+
+  os.symlink(modelatomdir,'./data')
 
   return()
 
 def cleanup_fort():
-#cleanup all fort* files
-
+#cleanup all temporary files
 
   files = os.listdir('.')
   for entry in files: 
@@ -2255,7 +2196,7 @@ def read_marcs_model(modelfile):
     line = f.readline()
     entries = line.split()
 
-    dm.append(  float(entries[-1]))
+    dm.append(  float(entries[7]))
 
   atmos = np.zeros(nd, dtype={'names':('dm', 't', 'p','ne'),
                           'formats':('f', 'f', 'f','f')}) 
@@ -2364,7 +2305,7 @@ def read_marcs_model2(modelfile):
   entries = line.split()
 
   rho = [ float(entries[3]) ]
-  dm = [ float(entries[-1]) ]
+  dm = [ float(entries[7]) ]
   mmw = [ float(entries[4]) ]
 
   for i in range(nd-1):
@@ -2372,7 +2313,7 @@ def read_marcs_model2(modelfile):
     entries = line.split()
 
     rho.append( float(entries[3]))
-    dm.append(  float(entries[-1]))
+    dm.append(  float(entries[7]))
     mmw.append(  float(entries[4]))
 
   atmos = np.zeros(nd, dtype={'names':('dm', 't', 'rho','mmw','ne'),
@@ -2384,6 +2325,7 @@ def read_marcs_model2(modelfile):
   atmos['ne'] = ne
 
   return (teff,logg,vmicro,abu,nd,atmos)
+
 
 def read_tlusty_model(modelfile,startdir=None):
   
@@ -2807,25 +2749,6 @@ def read_phoenix_text_model(modelfile):
   atmos['ne'] = ne
 
   return (teff,logg,vmicro,abu,nd,atmos)
-
-
-def read_multiline_fltarray(fhandle,arrlen):
-
-  """Reads a float array that spans one or multiple lines in a file
-  """
-
-  ndata = 0
-  arr = []
-  while ndata < arrlen:
-    line = fhandle.readline()
-    line = line.replace('D','E')
-    line = line.replace('d','e')
-    entries = line.split()
-    for val in entries: arr.append( float(val) )
-    ndata = len(arr)
-
-  return (arr)
-
 
 def interp_spl(xout, x, y):
 
