@@ -267,8 +267,20 @@ def syn(modelfile, wrange, dw=None, strength=1e-4, vmicro=None, abu=None, \
     if (dw != None): 
       nsamples = int((wrange[1] - wrange[0])/dw) + 1
       wave3 = np.arange(nsamples)*dw + wrange[0]
-      #flux = np.interp(wave3, wave, flux)
-      flux = interp_spl(wave3, wave, flux)      
+      # interp_spl and interp1d won't work if the requested output
+      #  wavelengths need to be extrapolated
+      si = np.argsort(wave)  # sometimes wavelengths are out of order
+      wave = wave[si]
+      flux = flux[si]
+      dum,ui = np.unique(wave,return_index=True)  # sometimes there are duplicate wavelengths
+      wave = wave[ui]
+      flux = flux[ui]
+      newflux = np.interp(wave3, wave, flux)  # this always works
+      ind, = np.where((wave3>=np.min(wave)) & (wave3<=np.max(wave)))
+      newflux[ind] = interp_spl(wave3[ind], wave, flux)
+      flux = newflux
+      #flux = interp_spl(wave3, wave, flux)
+      #flux = interpolate.interp1d(wave,flux,kind='quadratic')(wave3)
       cont = np.interp(wave3, wave2, flux2)
       wave = wave3
 

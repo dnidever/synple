@@ -1,1 +1,2 @@
 include synple/data/*
+include synple/linelists/*
